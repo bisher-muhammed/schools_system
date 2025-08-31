@@ -102,24 +102,14 @@ export default function ShowSchoolsPage() {
 
   // Helper function to get image URL
   function getImageUrl(imagePath) {
-    console.log("Processing image path:", imagePath)
-    if (!imagePath) return null
+  if (!imagePath) return "/placeholder.svg";
 
-    if (imagePath.startsWith("/schoolImages/")) {
-      console.log("Using path as is:", imagePath)
-      return imagePath
-    }
+  // If imagePath is already a full URL (from Cloudinary), return it
+  if (imagePath.startsWith("http")) return imagePath;
 
-    if (imagePath.startsWith("/")) {
-      const fullPath = `/schoolImages${imagePath}`
-      console.log("Constructed image URL:", fullPath)
-      return fullPath
-    }
-
-    const fullPath = `/schoolImages/${imagePath}`
-    console.log("Constructed image URL:", fullPath)
-    return fullPath
-  }
+  // Otherwise, fallback (if you store images locally in /public)
+  return `/schoolImages/${imagePath}`;
+}
 
   return (
     <div className="min-h-screen bg-gray-50">
