@@ -2,25 +2,22 @@
 
 import { getPool } from "@/lib/db";
 import * as yup from "yup";
-import fs from "fs";
-import path from "path";
+import { v2 as cloudinary } from "cloudinary";
+
+// Cloudinary config
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 // Validation schema
 const schoolSchema = yup.object({
-  name: yup
-    .string()
-    .matches(/^[a-zA-Z0-9\s]+$/, "Name must be alphanumeric")
-    .required("Name is required"),
+  name: yup.string().matches(/^[a-zA-Z0-9\s]+$/, "Name must be alphanumeric").required("Name is required"),
   address: yup.string().required("Address is required"),
-  city: yup
-    .string()
-    .matches(/^[a-zA-Z\s]+$/, "City must contain only alphabets")
-    .required("City is required"),
+  city: yup.string().matches(/^[a-zA-Z\s]+$/, "City must contain only alphabets").required("City is required"),
   state: yup.string().required("State is required"),
-  contact: yup
-    .string()
-    .matches(/^[0-9]{10}$/, "Contact must be a 10-digit number")
-    .required("Contact is required"),
+  contact: yup.string().matches(/^[0-9]{10}$/, "Contact must be a 10-digit number").required("Contact is required"),
   email_id: yup.string().email("Invalid email format").required("Email is required"),
   image: yup
     .mixed()
@@ -41,8 +38,8 @@ async function executeQuery(query, params = [], retries = 3) {
       return result;
     } catch (error) {
       lastError = error;
-      if ((error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT' || error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') && attempt < retries) {
-        await new Promise(res => setTimeout(res, attempt * 1000));
+      if ((error.code === "ECONNRESET" || error.code === "ETIMEDOUT" || error.code === "ENOTFOUND" || error.code === "ECONNREFUSED") && attempt < retries) {
+        await new Promise((res) => setTimeout(res, attempt * 1000));
         continue;
       }
       throw error;
@@ -72,29 +69,31 @@ export async function addSchool(formData) {
       return { success: false, errors: ["A school with this name already exists in this city"] };
     }
 
-    // Save image
-    const uploadDir = path.join(process.cwd(), "public", "schoolImages");
-    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-
+    // Upload image to Cloudinary
     const imageFile = validData.image;
     const buffer = Buffer.from(await imageFile.arrayBuffer());
-    const fileExt = path.extname(imageFile.name);
-    const sanitizedName = validData.name.replace(/[^a-zA-Z0-9]/g, "_");
-    const filename = `${Date.now()}_${sanitizedName}${fileExt}`;
-    const uploadPath = path.join(uploadDir, filename);
+    const publicId = `schoolImages/${Date.now()}_${validData.name.replace(/[^a-zA-Z0-9]/g, "_")}`;
 
-    fs.writeFileSync(uploadPath, buffer);
-
-    try {
-      const [result] = await executeQuery(
-        "INSERT INTO schools (name, address, city, state, contact, image, email_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        [validData.name, validData.address, validData.city, validData.state, validData.contact, filename, validData.email_id]
+    const uploadResult = await new Promise((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        { public_id: publicId, folder: "schoolImages" },
+        (error, result) => {
+          if (error) return reject(error);
+          resolve(result);
+        }
       );
-      return { success: true, id: result.insertId };
-    } catch (dbError) {
-      if (fs.existsSync(uploadPath)) fs.unlinkSync(uploadPath);
-      throw dbError;
-    }
+      uploadStream.end(buffer);
+    });
+
+    const imageUrl = uploadResult.secure_url; // store this in DB
+
+    // Insert into DB
+    const [result] = await executeQuery(
+      "INSERT INTO schools (name, address, city, state, contact, image, email_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [validData.name, validData.address, validData.city, validData.state, validData.contact, imageUrl, validData.email_id]
+    );
+
+    return { success: true, id: result.insertId };
   } catch (error) {
     console.error("Error adding school:", error);
     if (error.name === "ValidationError") return { success: false, errors: error.errors };
